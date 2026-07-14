@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  background-color: #f2f4f1;
+  color: #3d3d3d;
+}
+
+/* Foco de teclado siempre visible (§9 piso de calidad). */
+@layer base {
+  *:focus-visible {
+    outline: 2px solid #1f7a8c;
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+}
+
+/* Respeta prefers-reduced-motion (§9). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

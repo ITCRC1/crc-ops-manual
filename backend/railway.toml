@@ -1,0 +1,11 @@
+# Railway — proyecto "crc-ops-manual-api", base de datos "crc_ops_manual"
+# No crear el proyecto/servicio automáticamente: verificar existencia primero (§0.6 del spec).
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/api/salud"
+healthcheckTimeout = 100
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
