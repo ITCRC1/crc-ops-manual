@@ -7,12 +7,14 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.seguridad import decodificar_token
 from app.models.base import RolUsuario
 from app.models.usuarios import RolUsuarioAsignado, Usuario
 
-bearer = HTTPBearer(auto_error=True)
+# auto_error=False: sin AUTH_HABILITADA no llega token y el 401 lo decide get_current_user.
+bearer = HTTPBearer(auto_error=False)
 
 
 class UsuarioActual:
@@ -50,10 +52,36 @@ class UsuarioActual:
         return acc is None or propiedad_id in acc
 
 
+async def _con_roles(db: AsyncSession, usuario: Usuario) -> UsuarioActual:
+    roles_q = select(RolUsuarioAsignado).where(RolUsuarioAsignado.usuario_id == usuario.id)
+    return UsuarioActual(usuario, list((await db.execute(roles_q)).scalars()))
+
+
+async def _usuario_sin_auth(db: AsyncSession) -> UsuarioActual:
+    """Usuario que asume toda petición cuando AUTH_HABILITADA=false."""
+    email = get_settings().auth_usuario_default_email
+    usuario = (
+        await db.execute(select(Usuario).where(Usuario.email == email))
+    ).scalar_one_or_none()
+    if not usuario:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"AUTH_HABILITADA=false pero el usuario por defecto '{email}' no existe.",
+        )
+    return await _con_roles(db, usuario)
+
+
 async def get_current_user(
-    cred: HTTPAuthorizationCredentials = Depends(bearer),
+    cred: HTTPAuthorizationCredentials | None = Depends(bearer),
     db: AsyncSession = Depends(get_db),
 ) -> UsuarioActual:
+    if not get_settings().auth_habilitada:
+        return await _usuario_sin_auth(db)
+
+    # 403 "Not authenticated": mismo código que emitía HTTPBearer(auto_error=True) antes de
+    # que el bypass obligara a resolver el 401/403 acá. Se preserva el contrato de la API.
+    if cred is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authenticated")
     payload = decodificar_token(cred.credentials, "access")
     if not payload:
         raise HTTPException(
@@ -72,9 +100,7 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario inactivo o inexistente"
         )
 
-    roles_q = select(RolUsuarioAsignado).where(RolUsuarioAsignado.usuario_id == uid)
-    roles = list((await db.execute(roles_q)).scalars())
-    return UsuarioActual(usuario, roles)
+    return await _con_roles(db, usuario)
 
 
 def require_rol(*roles: RolUsuario):

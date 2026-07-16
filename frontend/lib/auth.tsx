@@ -16,6 +16,10 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+// Espejo de AUTH_HABILITADA del backend. En "false" no se pide login: se llama a /api/auth/me
+// sin token y el backend resuelve el usuario por defecto. Reactivar = quitar la variable.
+export const AUTH_HABILITADA = process.env.NEXT_PUBLIC_AUTH_HABILITADA !== "false";
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const qc = useQueryClient();
   const [user, setUser] = useState<Me | null>(null);
@@ -24,7 +28,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let vivo = true;
     (async () => {
-      if (!getAccess()) {
+      if (AUTH_HABILITADA && !getAccess()) {
         setLoading(false);
         return;
       }

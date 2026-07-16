@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { ROL_LABEL, tieneRol, useAuth } from "@/lib/auth";
+import { AUTH_HABILITADA, ROL_LABEL, tieneRol, useAuth } from "@/lib/auth";
 import { confirmarSalida } from "@/lib/cambios-sin-guardar";
 
 const NAV: { href: string; label: string; exact?: boolean; roles?: string[] }[] = [
@@ -98,12 +98,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </p>
               </div>
             )}
-            <button
-              onClick={logout}
-              className="rounded-md border border-linea px-3 py-1.5 text-sm text-carbon-suave hover:bg-petrol-tint hover:text-petrol-oscuro"
-            >
-              Salir
-            </button>
+            {AUTH_HABILITADA && (
+              <button
+                onClick={logout}
+                className="rounded-md border border-linea px-3 py-1.5 text-sm text-carbon-suave hover:bg-petrol-tint hover:text-petrol-oscuro"
+              >
+                Salir
+              </button>
+            )}
           </div>
         </header>
         <main className="flex-1 overflow-x-auto p-6">{children}</main>

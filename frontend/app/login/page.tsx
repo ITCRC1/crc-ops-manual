@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 import { Button, Card, Input } from "@/components/ui";
 import { ApiError } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
+import { AUTH_HABILITADA, useAuth } from "@/lib/auth";
 
 export default function LoginPage() {
   const { user, loading, login } = useAuth();
@@ -16,6 +16,10 @@ export default function LoginPage() {
   const [enviando, setEnviando] = useState(false);
 
   useEffect(() => {
+    if (!AUTH_HABILITADA) {
+      router.replace("/");
+      return;
+    }
     if (!loading && user) router.replace("/");
   }, [loading, user, router]);
 

@@ -46,6 +46,14 @@ class Settings(BaseSettings):
     jwt_access_token_minutos: int = 20
     jwt_refresh_token_dias: int = 7
 
+    # Interruptor de autenticación (§14). En `false` la app queda SIN login: toda petición se
+    # resuelve como `auth_usuario_default_email` (con sus roles), y el frontend entra directo.
+    # El login/JWT queda intacto: reactivar es poner AUTH_HABILITADA=true en ambos servicios.
+    # OJO: en `false` cualquiera con la URL tiene los permisos de ese usuario — proteger a
+    # nivel de red (Cloudflare Access / lista de IPs) si la app es alcanzable desde internet.
+    auth_habilitada: bool = True
+    auth_usuario_default_email: str = "Finance@thecostaricacollection.com"
+
     cors_allow_origins: list[str] = ["http://localhost:3000"]
 
     # URL pública del frontend. Se usa en el PDF exportable (sello "entrá a validar a la
