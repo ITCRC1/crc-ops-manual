@@ -19,10 +19,18 @@ from app.api import (
     usuarios,
 )
 from app.core.config import get_settings
+from app.sso_guard import SsoGuardMiddleware
 
 settings = get_settings()
 
 app = FastAPI(title=settings.app_name)
+
+# Guardia SSO corporativo: exige la cookie `crc_sso` en toda ruta salvo PUBLIC_PREFIXES.
+# Se registra ANTES del CORS a propósito: en Starlette el último add_middleware queda como el
+# más externo, así que CORS debe ir después para envolver al guardia y responder los preflight
+# OPTIONS (que llegan sin cookie); si no, el guardia los cortaría con 401 y el navegador
+# bloquearía toda llamada del frontend.
+app.add_middleware(SsoGuardMiddleware)
 
 # CORS allowlist explícita al origen del frontend (nunca "*", §14).
 app.add_middleware(

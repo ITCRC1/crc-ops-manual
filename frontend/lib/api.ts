@@ -4,7 +4,20 @@
 import { clearTokens, getAccess, getRefresh, setTokens } from "./tokens";
 import type { Tokens } from "./types";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Mismo-origen SIEMPRE: las llamadas van a rutas relativas (/api/...) y el rewrite de
+// next.config las reenvía al backend con la cookie `crc_sso`. Se hardcodea "" a propósito
+// (NO se lee NEXT_PUBLIC_API_URL): esa variable se hornea en el build, y si en Railway quedara
+// una URL absoluta del backend, el navegador llamaría cross-origin y la cookie SSO no viajaría
+// → SSO roto en silencio. Así no hace falta CORS ni credentials:include.
+const BASE = "";
+
+// Sesión SSO vencida/ausente: el backend responde 401 tras el proxy. Mandamos el navegador al
+// portal para refrescar y volver. Solo en cliente (no en SSR).
+function redirigirAlPortalSso(): void {
+  if (typeof window === "undefined") return;
+  const next = encodeURIComponent(window.location.href);
+  window.location.href = `https://apps.thecostaricacollection.com/api/sso/refresh?next=${next}`;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -70,10 +83,15 @@ export async function api<T>(path: string, opts: Options = {}): Promise<T> {
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
-  if (res.status === 401 && auth && retry) {
-    const ok = await refreshOnce();
-    if (ok) return api<T>(path, { ...opts, retry: false });
+  if (res.status === 401 && auth) {
+    // Primero se intenta el refresh interno (caso: sesión SSO válida pero access token del
+    // backend vencido). Si no se recupera, es sesión SSO ausente/vencida → al portal.
+    if (retry) {
+      const ok = await refreshOnce();
+      if (ok) return api<T>(path, { ...opts, retry: false });
+    }
     clearTokens();
+    redirigirAlPortalSso();
   }
 
   if (!res.ok) {
@@ -105,7 +123,10 @@ export async function apiDownload(path: string): Promise<{ blob: Blob; filename:
   if (res.status === 401) {
     const ok = await refreshOnce();
     if (ok) res = await pedir();
-    else clearTokens();
+    else {
+      clearTokens();
+      redirigirAlPortalSso();
+    }
   }
   if (!res.ok) throw new ApiError(res.status, res.statusText);
   const cd = res.headers.get("content-disposition") ?? "";
@@ -126,7 +147,10 @@ export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
   if (res.status === 401) {
     const ok = await refreshOnce();
     if (ok) res = await pedir();
-    else clearTokens();
+    else {
+      clearTokens();
+      redirigirAlPortalSso();
+    }
   }
   if (!res.ok) {
     let detail: string = res.statusText;

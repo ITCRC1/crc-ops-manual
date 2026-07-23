@@ -2,9 +2,9 @@
 
 import uuid
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -71,17 +71,50 @@ async def _usuario_sin_auth(db: AsyncSession) -> UsuarioActual:
     return await _con_roles(db, usuario)
 
 
+async def _usuario_por_email(db: AsyncSession, email: str) -> Usuario | None:
+    # Case-insensitive: el email del token del portal puede venir con mayúsculas distintas al
+    # guardado en Ops. Se normaliza el claim (strip+lower) y se compara contra lower(email).
+    return (
+        await db.execute(
+            select(Usuario).where(func.lower(Usuario.email) == email.strip().lower())
+        )
+    ).scalar_one_or_none()
+
+
 async def get_current_user(
+    request: Request,
     cred: HTTPAuthorizationCredentials | None = Depends(bearer),
     db: AsyncSession = Depends(get_db),
 ) -> UsuarioActual:
+    # 1. Identidad SSO corporativa (PRIORIDAD). SsoGuardMiddleware, tras validar la cookie
+    #    `crc_sso`, deja request.state.user = {"id","email","role"} del PORTAL. Mapeamos por
+    #    EMAIL al usuario LOCAL de Ops y usamos SIEMPRE su rol/permiso LOCAL (el `role` del
+    #    token es el rol del portal, no el de Ops; no se usa para autorizar acá).
+    sso = getattr(request.state, "user", None)
+    if sso:
+        email = sso.get("email")
+        usuario = await _usuario_por_email(db, email) if email else None
+        if not usuario or not usuario.activo:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Tu cuenta corporativa no tiene acceso a esta app; "
+                    "pedile a un administrador que te dé de alta."
+                ),
+            )
+        return await _con_roles(db, usuario)
+
+    # 2. Sin SSO: modo sin auth interno (bypass) si AUTH_HABILITADA=false. Se conserva.
     if not get_settings().auth_habilitada:
         return await _usuario_sin_auth(db)
 
-    # 403 "Not authenticated": mismo código que emitía HTTPBearer(auto_error=True) antes de
-    # que el bypass obligara a resolver el 401/403 acá. Se preserva el contrato de la API.
+    # 3. Sin SSO pero con Bearer interno válido (pruebas / uso directo). Camino previo intacto.
     if cred is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authenticated")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No autenticado",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     payload = decodificar_token(cred.credentials, "access")
     if not payload:
         raise HTTPException(
