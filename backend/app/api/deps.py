@@ -5,11 +5,12 @@ import uuid
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.db import get_db
-from app.core.seguridad import decodificar_token
+from app.core.seguridad import decodificar_token, hash_password
 from app.models.base import RolUsuario
 from app.models.usuarios import RolUsuarioAsignado, Usuario
 
@@ -81,6 +82,33 @@ async def _usuario_por_email(db: AsyncSession, email: str) -> Usuario | None:
     ).scalar_one_or_none()
 
 
+async def _auto_provisionar(db: AsyncSession, email: str, sso: dict) -> Usuario:
+    """Auto-provisión (JIT): el portal ya autenticó al usuario, así que en su primer ingreso
+    creamos su cuenta LOCAL de Ops con rol `lector` (solo lectura). Un admin puede subirle el
+    rol después desde /usuarios. El `role` del token del portal NO se usa para el rol local.
+    Password inusable: estos usuarios entran por SSO, nunca por el login interno."""
+    usuario = Usuario(
+        nombre=sso.get("email") or email,
+        email=email,
+        password_hash=hash_password("sso-" + uuid.uuid4().hex),
+        nivel_jerarquico=4,
+        activo=True,
+    )
+    db.add(usuario)
+    try:
+        await db.flush()
+    except IntegrityError:
+        # Carrera: otra petición del mismo usuario lo creó primero. Reusamos ese.
+        await db.rollback()
+        existente = await _usuario_por_email(db, email)
+        if existente:
+            return existente
+        raise
+    db.add(RolUsuarioAsignado(usuario_id=usuario.id, rol=RolUsuario.lector, propiedad_id=None))
+    await db.commit()
+    return usuario
+
+
 async def get_current_user(
     request: Request,
     cred: HTTPAuthorizationCredentials | None = Depends(bearer),
@@ -92,16 +120,21 @@ async def get_current_user(
     #    token es el rol del portal, no el de Ops; no se usa para autorizar acá).
     sso = getattr(request.state, "user", None)
     if sso:
-        email = sso.get("email")
-        usuario = await _usuario_por_email(db, email) if email else None
-        if not usuario or not usuario.activo:
+        email = (sso.get("email") or "").strip()
+        if not email:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    "Tu cuenta corporativa no tiene acceso a esta app; "
-                    "pedile a un administrador que te dé de alta."
-                ),
+                detail="El token SSO no incluye un email; no se puede resolver la cuenta.",
             )
+        usuario = await _usuario_por_email(db, email)
+        if usuario and not usuario.activo:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tu cuenta en Ops está inactiva; pedile a un administrador que la reactive.",
+            )
+        if usuario is None:
+            # Auto-provisión: el portal ya autenticó → alta local automática con rol lector.
+            usuario = await _auto_provisionar(db, email, sso)
         return await _con_roles(db, usuario)
 
     # 2. Sin SSO: modo sin auth interno (bypass) si AUTH_HABILITADA=false. Se conserva.
