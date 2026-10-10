@@ -5,7 +5,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse
 
 SSO_SECRET = os.environ["SSO_SECRET"].encode()   # MISMO valor que en la intranet
-BASE = "https://apps.thecostaricacollection.com"
+# Portal que emite la cookie. Override por env solo para desarrollo local (portal en localhost).
+BASE = os.environ.get("SSO_PORTAL_URL", "https://apps.thecostaricacollection.com").rstrip("/")
 PORTAL_REFRESH = f"{BASE}/api/sso/refresh"
 PORTAL_LOGIN = f"{BASE}/login"
 COOKIE_NAME = "crc_sso"

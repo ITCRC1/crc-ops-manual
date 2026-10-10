@@ -4,7 +4,10 @@ import { NextRequest, NextResponse } from "next/server";
 // usuario al portal para que inicie/refresque sesión y vuelva a donde estaba (?next=...).
 // El portal, tras autenticar, setea la cookie sobre .thecostaricacollection.com y redirige
 // de vuelta; entonces esta app ya la ve y el proxy /api la reenvía al backend.
-const PORTAL_REFRESH = "https://apps.thecostaricacollection.com/api/sso/refresh";
+// Override por env solo para desarrollo local (portal en localhost).
+const PORTAL =
+  process.env.NEXT_PUBLIC_SSO_PORTAL_URL || "https://apps.thecostaricacollection.com";
+const PORTAL_REFRESH = `${PORTAL.replace(/\/$/, "")}/api/sso/refresh`;
 const COOKIE_NAME = "crc_sso";
 
 export function middleware(req: NextRequest) {
